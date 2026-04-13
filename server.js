@@ -18,15 +18,8 @@ app.get("/", (req, res) => {
 });
 
 // ✅ GET PRODUCTS (VERY IMPORTANT)
-app.get("/products", (req, res) => {
-  db.query("SELECT * FROM products", (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Database error" });
-    }
-    res.json(result);
-  });
-});
+const productRoutes = require("./routes/products");
+app.use("/api/products", productRoutes);
 
 // ✅ (OPTIONAL) ADD ANALYTICS
 app.post("/analytics", (req, res) => {
