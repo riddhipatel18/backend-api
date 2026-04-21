@@ -2,43 +2,71 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 
-// VIEW RECENT ANALYTICS LOGS
-router.get("/", (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
 
-  db.query(
-    "SELECT * FROM analytics_logs ORDER BY id DESC LIMIT ?",
-    [limit],
-    (err, rows) => {
-      if (err) return res.status(500).json(err);
-      res.json({ success: true, count: rows.length, logs: rows });
-    }
-  );
+// ✅ GET: Fetch analytics logs (for dashboard)
+router.get("/", (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+
+    db.query(
+        "SELECT * FROM analytics_logs ORDER BY id DESC LIMIT ?",
+        [limit],
+        (err, rows) => {
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    error: err.message
+                });
+            }
+
+            res.json({
+                success: true,
+                count: rows.length,
+                logs: rows
+            });
+        }
+    );
 });
 
-// SAVE ANALYTICS EVENT
+
+// ✅ POST: Save analytics event (UPDATED LOGIC)
 router.post("/", (req, res) => {
-  const { event_name, user_id } = req.body;
-  const payload = JSON.stringify(req.body);
+    const body = req.body || {};
 
-  let status = "raw";
-  if (payload.includes("***") || payload.includes("hidden_")) {
-    status = "anonymized";
-  }
+    const event_name = body.event_name || body.event || "unknown";
+    const user_id = body.user_id || body.user_db_id || null;
+    const payload = JSON.stringify(body);
 
-  db.query(
-    "INSERT INTO analytics_logs (user_id, event_name, payload, status) VALUES (?, ?, ?, ?)",
-    [user_id || null, event_name || "unknown", payload, status],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
+    let status = "raw";
+    const lower = payload.toLowerCase();
 
-      res.json({
-        success: true,
-        log_id: result.insertId,
-        status
-      });
+    // 🔍 Detect anonymized data (HideDroid effect)
+    if (
+        lower.includes("hidden_") ||
+        lower.includes("anonymized") ||
+        lower.includes("*****") ||
+        lower.includes("hidedroid")
+    ) {
+        status = "anonymized";
     }
-  );
+
+    db.query(
+        "INSERT INTO analytics_logs (user_id, event_name, payload, status) VALUES (?, ?, ?, ?)",
+        [user_id, event_name, payload, status],
+        (err, result) => {
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    error: err.message
+                });
+            }
+
+            res.json({
+                success: true,
+                log_id: result.insertId,
+                status: status
+            });
+        }
+    );
 });
 
 module.exports = router;
