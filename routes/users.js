@@ -1,71 +1,96 @@
 const express = require("express");
+const User = require("../models/User");
+const Order = require("../models/Order");
+
 const router = express.Router();
-const db = require("../db");
+
+function sanitizeUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    address: user.address || "",
+    gender: user.gender || "",
+    age: user.age || 0,
+    phone: user.phone || "",
+    created_at: user.created_at
+  };
+}
 
 // GET USER + ORDERS
-router.get("/:id", (req, res) => {
-  const id = req.params.id;
+router.get("/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
 
-  db.query(
-    "SELECT id, name, email, address, gender, age, phone, created_at FROM users WHERE id=?",
-    [id],
-    (err, userRes) => {
-      if (err) return res.status(500).json(err);
-      if (userRes.length === 0) {
-        return res.status(404).json({ success: false, message: "User not found" });
-      }
+    const user = await User.findOne({ id }).lean();
 
-      db.query(
-        "SELECT * FROM orders WHERE user_id=? ORDER BY id DESC",
-        [id],
-        (err, orderRes) => {
-          if (err) return res.status(500).json(err);
-
-          res.json({
-            success: true,
-            user: userRes[0],
-            orders: orderRes
-          });
-        }
-      );
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
-  );
+
+    const orders = await Order.find({ user_id: id })
+      .sort({ id: -1 })
+      .lean();
+
+    res.json({
+      success: true,
+      user: sanitizeUser(user),
+      orders
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
 });
 
 // UPDATE USER
-router.post("/update", (req, res) => {
-  const { user_id, name, address, gender, age, phone } = req.body;
+router.post("/update", async (req, res) => {
+  try {
+    const { user_id, name, address = "", gender = "", age = 0, phone = "" } = req.body || {};
 
-  if (!user_id || !name) {
-    return res.status(400).json({
+    if (!user_id || !name) {
+      return res.status(400).json({
+        success: false,
+        message: "user_id and name are required"
+      });
+    }
+
+    const updated = await User.findOneAndUpdate(
+      { id: Number(user_id) },
+      {
+        $set: {
+          name,
+          address,
+          gender,
+          age: Number(age) || 0,
+          phone
+        }
+      },
+      { new: true }
+    ).lean();
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found after update"
+      });
+    }
+
+    res.json({
+      success: true,
+      user: sanitizeUser(updated)
+    });
+  } catch (err) {
+    res.status(500).json({
       success: false,
-      message: "user_id and name are required"
+      message: err.message
     });
   }
-
-  db.query(
-    "UPDATE users SET name=?, address=?, gender=?, age=?, phone=? WHERE id=?",
-    [name, address || "", gender || "", age || 0, phone || "", user_id],
-    (err) => {
-      if (err) return res.status(500).json(err);
-
-      db.query(
-        "SELECT id, name, email, address, gender, age, phone, created_at FROM users WHERE id=?",
-        [user_id],
-        (err2, rows) => {
-          if (err2) return res.status(500).json(err2);
-          if (!rows.length) {
-            return res.status(404).json({ success: false, message: "User not found after update" });
-          }
-
-          res.json({
-            success: true,
-            user: rows[0]
-          });
-        }
-      );
-    }
-  );
 });
 
 module.exports = router;
