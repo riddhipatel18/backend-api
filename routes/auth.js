@@ -1,49 +1,110 @@
 const express = require("express");
-const router = express.Router();
-const db = require("../db");
 const bcrypt = require("bcryptjs");
+const User = require("../models/User");
+
+const router = express.Router();
+
+function sanitizeUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    address: user.address || "",
+    gender: user.gender || "",
+    age: user.age || 0,
+    phone: user.phone || "",
+    created_at: user.created_at
+  };
+}
 
 // REGISTER
 router.post("/register", async (req, res) => {
-  const { name, email, password, address, gender, age, phone } = req.body;
+  try {
+    const {
+      name,
+      email,
+      password,
+      address = "",
+      gender = "",
+      age = 0,
+      phone = ""
+    } = req.body || {};
 
-  if (!name || !email || !password)
-    return res.status(400).json({ message: "Missing fields" });
-
-  const hash = await bcrypt.hash(password, 10);
-
-  db.query(
-    "INSERT INTO users (name,email,password_hash,address,gender,age,phone) VALUES (?,?,?,?,?,?,?)",
-    [name, email, hash, address, gender, age, phone],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
-
-      res.json({ success: true, user_id: result.insertId });
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing fields"
+      });
     }
-  );
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const existing = await User.findOne({ email: normalizedEmail }).lean();
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "Email already exists"
+      });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      name,
+      email: normalizedEmail,
+      password_hash: hash,
+      address,
+      gender,
+      age: Number(age) || 0,
+      phone
+    });
+
+    res.json({
+      success: true,
+      user_id: user.id
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
 });
 
 // LOGIN
-router.post("/login", (req, res) => {
-  const { email, password } = req.body;
+router.post("/login", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").toLowerCase().trim();
+    const password = String(req.body?.password || "");
 
-  db.query("SELECT * FROM users WHERE email=?", [email], async (err, result) => {
-    if (err) return res.status(500).json(err);
+    const user = await User.findOne({ email });
 
-    if (result.length === 0)
-      return res.status(401).json({ message: "Invalid user" });
-
-    const user = result[0];
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid user"
+      });
+    }
 
     const match = await bcrypt.compare(password, user.password_hash);
 
-    if (!match)
-      return res.status(401).json({ message: "Wrong password" });
+    if (!match) {
+      return res.status(401).json({
+        success: false,
+        message: "Wrong password"
+      });
+    }
 
-    delete user.password_hash;
-
-    res.json({ success: true, user });
-  });
+    res.json({
+      success: true,
+      user: sanitizeUser(user)
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
 });
 
 module.exports = router;
