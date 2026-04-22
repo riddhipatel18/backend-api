@@ -1,28 +1,38 @@
 const express = require("express");
+const Product = require("../models/Product");
+
 const router = express.Router();
-const db = require("../db");
 
-router.get("/", (req, res) => {
-  const limit = parseInt(req.query.limit) || 20;
+router.get("/", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
 
-  db.query("SELECT * FROM products LIMIT ?", [limit], (err, result) => {
-    if (err) return res.status(500).json(err);
+    const rows = await Product.find()
+      .sort({ id: 1 })
+      .limit(limit)
+      .lean();
 
-    const products = result.map(row => ({
+    const products = rows.map((row) => ({
       id: row.id,
       title: row.title,
       description: row.description,
-      price: parseFloat(row.price),
+      price: Number(row.price || 0),
       category: row.category,
       image: row.image,
       rating: {
-        rate: parseFloat(row.rate),
-        count: row.count
-      }
+        rate: Number(row.rate || 0),
+        count: Number(row.count || 0)
+      },
+      inStock: row.inStock !== false
     }));
 
     res.json(products);
-  });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
 });
 
 module.exports = router;
