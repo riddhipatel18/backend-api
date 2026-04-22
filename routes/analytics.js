@@ -1,72 +1,94 @@
 const express = require("express");
+const AnalyticsLog = require("../models/AnalyticsLog");
+
 const router = express.Router();
-const db = require("../db");
 
+function detectStatus(payloadText) {
+  const lower = String(payloadText || "").toLowerCase();
 
-// ✅ GET: Fetch analytics logs (for dashboard)
-router.get("/", (req, res) => {
+  if (
+    lower.includes("hidden_") ||
+    lower.includes("anonymized") ||
+    lower.includes("*****") ||
+    lower.includes("hidedroid")
+  ) {
+    return "anonymized";
+  }
+
+  return "raw";
+}
+
+// GET analytics logs
+router.get("/", async (req, res) => {
+  try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
 
-    db.query(
-        "SELECT * FROM analytics_logs ORDER BY id DESC LIMIT ?",
-        [limit],
-        (err, rows) => {
-            if (err) {
-                return res.status(500).json({
-                    success: false,
-                    error: err.message
-                });
-            }
+    const logs = await AnalyticsLog.find()
+      .sort({ id: -1 })
+      .limit(limit)
+      .lean();
 
-            res.json({
-                success: true,
-                count: rows.length,
-                logs: rows
-            });
-        }
-    );
+    res.json({
+      success: true,
+      count: logs.length,
+      logs
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
 });
 
-
-// ✅ POST: Save analytics event (UPDATED LOGIC)
-router.post("/", (req, res) => {
+// POST analytics event
+router.post("/", async (req, res) => {
+  try {
     const body = req.body || {};
 
-    const event_name = body.event_name || body.event || "unknown";
-    const user_id = body.user_id || body.user_db_id || null;
-    const payload = JSON.stringify(body);
+    const event_name =
+      body.event_name ||
+      body.event ||
+      body.eventName ||
+      "unknown";
 
-    let status = "raw";
-    const lower = payload.toLowerCase();
+    const userIdRaw =
+      body.user_id ??
+      body.user_db_id ??
+      body.customer_user_id ??
+      null;
 
-    // 🔍 Detect anonymized data (HideDroid effect)
-    if (
-        lower.includes("hidden_") ||
-        lower.includes("anonymized") ||
-        lower.includes("*****") ||
-        lower.includes("hidedroid")
-    ) {
-        status = "anonymized";
-    }
+    const user_id =
+      userIdRaw === null || userIdRaw === "" || Number.isNaN(Number(userIdRaw))
+        ? null
+        : Number(userIdRaw);
 
-    db.query(
-        "INSERT INTO analytics_logs (user_id, event_name, payload, status) VALUES (?, ?, ?, ?)",
-        [user_id, event_name, payload, status],
-        (err, result) => {
-            if (err) {
-                return res.status(500).json({
-                    success: false,
-                    error: err.message
-                });
-            }
+    const payloadText = JSON.stringify(body);
+    const status = detectStatus(payloadText);
 
-            res.json({
-                success: true,
-                log_id: result.insertId,
-                status: status
-            });
-        }
-    );
+    const log = await AnalyticsLog.create({
+      user_id,
+      event_name,
+      payload: payloadText,
+      payload_json: body,
+      headers: req.headers,
+      ip_address: req.ip || req.headers["x-forwarded-for"] || "",
+      user_agent: req.get("user-agent") || "",
+      content_type: req.get("content-type") || "",
+      status
+    });
+
+    res.json({
+      success: true,
+      log_id: log.id,
+      status: log.status
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
 });
 
 module.exports = router;
