@@ -20,16 +20,28 @@ app.get("/", (req, res) => {
   res.send("API is running 🚀");
 });
 
+// Ping endpoint for UptimeRobot
+app.get("/ping", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "awake",
+    timestamp: new Date()
+  });
+});
+
 // Mount routes
 app.use("/api", authRoutes);                 // /api/register , /api/login
 app.use("/api/products", productRoutes);    // GET /api/products
 app.use("/api/orders", orderRoutes);        // POST /api/orders
-app.use("/api/users", userRoutes);          // GET /api/users/:id , POST /api/users/update
-app.use("/api/analytics", analyticsRoutes); // POST /api/analytics , GET /api/analytics
+app.use("/api/users", userRoutes);          // GET /api/users/:id
+app.use("/api/analytics", analyticsRoutes); // POST /api/analytics
 
 // 404
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: "Route not found" });
+  res.status(404).json({
+    success: false,
+    message: "Route not found"
+  });
 });
 
 const PORT = process.env.PORT || 3000;
